@@ -12,7 +12,7 @@ from schemas import (
     MovieCreate,
     MoviePatch,
     MovieListResponseSchema,
-    MovieDetailResponseSchema,
+    MovieDetailSchema,
     MessageResponseSchema,
 )
 
@@ -21,9 +21,9 @@ router = APIRouter()
 
 @router.get("/", response_model=MovieListResponseSchema)
 async def get_movies(
-        page: int = Query(1, ge=1),
-        per_page: int = Query(10, ge=1, le=20),
-        db: AsyncSession = Depends(get_db),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(10, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
 ):
     total_query = select(func.count()).select_from(MovieModel)
     total_items_res = await db.execute(total_query)
@@ -76,11 +76,11 @@ async def get_movies(
 
 @router.post(
     "/",
-    response_model=MovieDetailResponseSchema,
+    response_model=MovieDetailSchema,
     status_code=status.HTTP_201_CREATED,
 )
 async def create_movie(
-        body: dict = Body(...), db: AsyncSession = Depends(get_db)
+    body: dict = Body(...), db: AsyncSession = Depends(get_db)
 ):
     try:
         payload = MovieCreate.model_validate(body)
@@ -176,10 +176,10 @@ async def create_movie(
 
 
 @router.get(
-    "/{movie_id}/", response_model=MovieDetailResponseSchema
+    "/{movie_id}/", response_model=MovieDetailSchema
 )
 async def get_movie(
-        movie_id: int, db: AsyncSession = Depends(get_db)
+    movie_id: int, db: AsyncSession = Depends(get_db)
 ):
     query = (
         select(MovieModel)
@@ -206,7 +206,7 @@ async def get_movie(
     "/{movie_id}/", status_code=status.HTTP_204_NO_CONTENT
 )
 async def delete_movie(
-        movie_id: int, db: AsyncSession = Depends(get_db)
+    movie_id: int, db: AsyncSession = Depends(get_db)
 ):
     query = select(MovieModel).where(MovieModel.id == movie_id)
     res = await db.execute(query)
@@ -224,9 +224,9 @@ async def delete_movie(
 
 @router.patch("/{movie_id}/", response_model=MessageResponseSchema)
 async def update_movie(
-        movie_id: int,
-        body: dict = Body(...),
-        db: AsyncSession = Depends(get_db),
+    movie_id: int,
+    body: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
 ):
     try:
         payload = MoviePatch.model_validate(body)

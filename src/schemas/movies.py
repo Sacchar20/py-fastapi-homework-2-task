@@ -91,7 +91,7 @@ class MovieListResponseSchema(BaseModel):
     total_items: int
 
 
-class MovieDetailResponseSchema(BaseModel):
+class MovieDetailSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
