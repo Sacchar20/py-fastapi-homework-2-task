@@ -55,9 +55,7 @@ class MovieCreate(BaseModel):
     @field_validator("date")
     @classmethod
     def validate_date(cls, v: datetime.date) -> datetime.date:
-        max_date = (
-            datetime.date.today() + datetime.timedelta(days=365)
-        )
+        max_date = datetime.date.today() + datetime.timedelta(days=365)
         if v > max_date:
             raise ValueError(
                 "The date must not be more than one year in the future."
@@ -108,3 +106,7 @@ class MovieDetailResponseSchema(BaseModel):
     genres: List[GenreResponseSchema]
     actors: List[ActorResponseSchema]
     languages: List[LanguageResponseSchema]
+
+
+class MessageResponseSchema(BaseModel):
+    detail: str

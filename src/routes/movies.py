@@ -1,5 +1,6 @@
 import math
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from pydantic import ValidationError
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,7 @@ from schemas import (
     MoviePatch,
     MovieListResponseSchema,
     MovieDetailResponseSchema,
+    MessageResponseSchema,
 )
 
 router = APIRouter()
@@ -19,9 +21,9 @@ router = APIRouter()
 
 @router.get("/", response_model=MovieListResponseSchema)
 async def get_movies(
-    page: int = Query(1, ge=1),
-    per_page: int = Query(10, ge=1, le=20),
-    db: AsyncSession = Depends(get_db),
+        page: int = Query(1, ge=1),
+        per_page: int = Query(10, ge=1, le=20),
+        db: AsyncSession = Depends(get_db),
 ):
     total_query = select(func.count()).select_from(MovieModel)
     total_items_res = await db.execute(total_query)
@@ -78,8 +80,16 @@ async def get_movies(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_movie(
-    payload: MovieCreate, db: AsyncSession = Depends(get_db)
+        body: dict = Body(...), db: AsyncSession = Depends(get_db)
 ):
+    try:
+        payload = MovieCreate.model_validate(body)
+    except (ValidationError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid input data.",
+        )
+
     exist_query = select(MovieModel).where(
         MovieModel.name == payload.name,
         MovieModel.date == payload.date,
@@ -108,8 +118,8 @@ async def create_movie(
     genre_objects = []
     for g_name in payload.genres:
         g_query = select(GenreModel).where(GenreModel.name == g_name)
-        g_res = await db.execute(g_query)
-        g_obj = g_res.scalar_one_or_none()
+        db_res = await db.execute(g_query)
+        g_obj = db_res.scalar_one_or_none()
         if not g_obj:
             g_obj = GenreModel(name=g_name)
             db.add(g_obj)
@@ -118,24 +128,22 @@ async def create_movie(
     actor_objects = []
     for a_name in payload.actors:
         a_query = select(ActorModel).where(ActorModel.name == a_name)
-        a_res = await db.execute(a_query)
-        a_obj = a_res.scalar_one_or_none()
+        db_res = await db.execute(a_query)
+        a_obj = db_res.scalar_one_or_none()
         if not a_obj:
-            g_obj = ActorModel(name=a_name)
-            db.add(g_obj)
+            a_obj = ActorModel(name=a_name)
+            db.add(a_obj)
         actor_objects.append(a_obj)
 
     lang_objects = []
     for l_name in payload.languages:
-        l_query = select(LanguageModel).where(
-            LanguageModel.name == l_name
-        )
-        l_res = await db.execute(l_query)
-        l_obj = l_res.scalar_one_or_none()
+        l_query = select(LanguageModel).where(LanguageModel.name == l_name)
+        db_res = await db.execute(l_query)
+        l_obj = db_res.scalar_one_or_none()
         if not l_obj:
-            g_obj = LanguageModel(name=l_name)
-            db.add(g_obj)
-        lang_objects.append(g_obj)
+            l_obj = LanguageModel(name=l_name)
+            db.add(l_obj)
+        lang_objects.append(l_obj)
 
     await db.flush()
 
@@ -154,7 +162,15 @@ async def create_movie(
     )
 
     db.add(new_movie)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Movie already exists.",
+        )
+
     await db.refresh(new_movie)
     return new_movie
 
@@ -163,7 +179,7 @@ async def create_movie(
     "/{movie_id}/", response_model=MovieDetailResponseSchema
 )
 async def get_movie(
-    movie_id: int, db: AsyncSession = Depends(get_db)
+        movie_id: int, db: AsyncSession = Depends(get_db)
 ):
     query = (
         select(MovieModel)
@@ -190,7 +206,7 @@ async def get_movie(
     "/{movie_id}/", status_code=status.HTTP_204_NO_CONTENT
 )
 async def delete_movie(
-    movie_id: int, db: AsyncSession = Depends(get_db)
+        movie_id: int, db: AsyncSession = Depends(get_db)
 ):
     query = select(MovieModel).where(MovieModel.id == movie_id)
     res = await db.execute(query)
@@ -206,12 +222,20 @@ async def delete_movie(
     await db.commit()
 
 
-@router.patch("/{movie_id}/")
+@router.patch("/{movie_id}/", response_model=MessageResponseSchema)
 async def update_movie(
-    movie_id: int,
-    payload: MoviePatch,
-    db: AsyncSession = Depends(get_db),
+        movie_id: int,
+        body: dict = Body(...),
+        db: AsyncSession = Depends(get_db),
 ):
+    try:
+        payload = MoviePatch.model_validate(body)
+    except (ValidationError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid input data.",
+        )
+
     query = select(MovieModel).where(MovieModel.id == movie_id)
     res = await db.execute(query)
     movie = res.scalar_one_or_none()
@@ -223,11 +247,6 @@ async def update_movie(
         )
 
     update_data = payload.model_dump(exclude_unset=True)
-    if not update_data and payload.__fields_set__:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid input data.",
-        )
 
     for key, value in update_data.items():
         setattr(movie, key, value)
