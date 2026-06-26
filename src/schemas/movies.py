@@ -73,7 +73,7 @@ class MoviePatch(BaseModel):
     revenue: Optional[float] = Field(None, ge=0)
 
 
-class MovieShortResponseSchema(BaseModel):
+class MovieListItemSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -84,7 +84,7 @@ class MovieShortResponseSchema(BaseModel):
 
 
 class MovieListResponseSchema(BaseModel):
-    movies: List[MovieShortResponseSchema]
+    movies: List[MovieListItemSchema]
     prev_page: Optional[str] = None
     next_page: Optional[str] = None
     total_pages: int
