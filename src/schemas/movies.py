@@ -56,7 +56,7 @@ class MovieCreate(BaseModel):
     @classmethod
     def validate_date(cls, v: datetime.date) -> datetime.date:
         max_date = (
-                datetime.date.today() + datetime.timedelta(days=365)
+            datetime.date.today() + datetime.timedelta(days=365)
         )
         if v > max_date:
             raise ValueError(
