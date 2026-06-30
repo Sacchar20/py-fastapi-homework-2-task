@@ -12,7 +12,7 @@ from schemas.movies import (
     MovieDetailSchema,
     MovieListResponseSchema,
 )
-from schemas.accounts import MessageResponseSchema
+from schemas import MessageResponseSchema
 
 router = APIRouter()
 
