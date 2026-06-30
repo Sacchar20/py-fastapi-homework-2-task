@@ -1,6 +1,5 @@
 import math
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
-from pydantic import ValidationError
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,13 +7,11 @@ from sqlalchemy.orm import joinedload
 
 from database import get_db, MovieModel
 from database.models import CountryModel, GenreModel, ActorModel, LanguageModel
-from schemas import (
-    MovieCreate,
-    MoviePatch,
-    MovieListResponseSchema,
+from schemas.movies import (
     MovieDetailSchema,
-    MessageResponseSchema,
+    MovieListResponseSchema,
 )
+from schemas.accounts import MessageResponseSchema
 
 router = APIRouter()
 
@@ -83,7 +80,19 @@ async def create_movie(
     body: dict = Body(...), db: AsyncSession = Depends(get_db)
 ):
     try:
-        payload = MovieCreate.model_validate(body)
+        name = body.get("name")
+        date = body.get("date")
+        score = body.get("score")
+        overview = body.get("overview")
+        status_val = body.get("status")
+        budget = body.get("budget")
+        revenue = body.get("revenue")
+        country = body.get("country")
+        genres = body.get("genres", [])
+        actors = body.get("actors", [])
+        languages = body.get("languages", [])
+        if not name or not date or not country:
+            raise ValueError
     except (ValidationError, TypeError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -91,32 +100,32 @@ async def create_movie(
         )
 
     exist_query = select(MovieModel).where(
-        MovieModel.name == payload.name,
-        MovieModel.date == payload.date,
+        MovieModel.name == name,
+        MovieModel.date == date,
     )
     exist_res = await db.execute(exist_query)
     if exist_res.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"A movie with the name '{payload.name}' "
-                f"and release date '{payload.date}' already exists."
+                f"A movie with the name '{name}' "
+                f"and release date '{date}' already exists."
             ),
         )
 
     country_query = select(CountryModel).where(
-        CountryModel.code == payload.country
+        CountryModel.code == country
     )
     country_res = await db.execute(country_query)
     country_obj = country_res.scalar_one_or_none()
 
     if not country_obj:
-        country_obj = CountryModel(code=payload.country, name=None)
+        country_obj = CountryModel(code=country, name=None)
         db.add(country_obj)
         await db.flush()
 
     genre_objects = []
-    for g_name in payload.genres:
+    for g_name in genres:
         g_query = select(GenreModel).where(GenreModel.name == g_name)
         db_res = await db.execute(g_query)
         g_obj = db_res.scalar_one_or_none()
@@ -126,7 +135,7 @@ async def create_movie(
         genre_objects.append(g_obj)
 
     actor_objects = []
-    for a_name in payload.actors:
+    for a_name in actors:
         a_query = select(ActorModel).where(ActorModel.name == a_name)
         db_res = await db.execute(a_query)
         a_obj = db_res.scalar_one_or_none()
@@ -136,7 +145,7 @@ async def create_movie(
         actor_objects.append(a_obj)
 
     lang_objects = []
-    for l_name in payload.languages:
+    for l_name in languages:
         l_query = select(LanguageModel).where(LanguageModel.name == l_name)
         db_res = await db.execute(l_query)
         l_obj = db_res.scalar_one_or_none()
@@ -148,13 +157,13 @@ async def create_movie(
     await db.flush()
 
     new_movie = MovieModel(
-        name=payload.name,
-        date=payload.date,
-        score=payload.score,
-        overview=payload.overview,
-        status=payload.status,
-        budget=payload.budget,
-        revenue=payload.revenue,
+        name=name,
+        date=date,
+        score=score,
+        overview=overview,
+        status=status_val,
+        budget=budget,
+        revenue=revenue,
         country_id=country_obj.id,
         genres=genre_objects,
         actors=actor_objects,
@@ -228,9 +237,7 @@ async def update_movie(
     body: dict = Body(...),
     db: AsyncSession = Depends(get_db),
 ):
-    try:
-        payload = MoviePatch.model_validate(body)
-    except (ValidationError, TypeError, ValueError):
+    if not isinstance(body, dict):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid input data.",
@@ -246,10 +253,9 @@ async def update_movie(
             detail="Movie with the given ID was not found.",
         )
 
-    update_data = payload.model_dump(exclude_unset=True)
-
-    for key, value in update_data.items():
-        setattr(movie, key, value)
+    for key, value in body.items():
+        if hasattr(movie, key):
+            setattr(movie, key, value)
 
     await db.commit()
-    return {"detail": "Movie updated successfully."}
+    return {"message": "Movie updated successfully."}
