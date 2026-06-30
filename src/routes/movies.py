@@ -1,6 +1,5 @@
 import math
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
-from pydantic import ValidationError
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,10 +8,12 @@ from sqlalchemy.orm import joinedload
 from database import get_db, MovieModel
 from database.models import CountryModel, GenreModel, ActorModel, LanguageModel
 from schemas.movies import (
+    MovieCreate,
+    MoviePatch,
     MovieDetailSchema,
     MovieListResponseSchema,
+    MessageResponseSchema,
 )
-from schemas import MessageResponseSchema
 
 router = APIRouter()
 
@@ -78,55 +79,35 @@ async def get_movies(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_movie(
-    body: dict = Body(...), db: AsyncSession = Depends(get_db)
+    body: MovieCreate = Body(...), db: AsyncSession = Depends(get_db)
 ):
-    try:
-        name = body.get("name")
-        date = body.get("date")
-        score = body.get("score")
-        overview = body.get("overview")
-        status_val = body.get("status")
-        budget = body.get("budget")
-        revenue = body.get("revenue")
-        country = body.get("country")
-        genres = body.get("genres", [])
-        actors = body.get("actors", [])
-        languages = body.get("languages", [])
-        if not name or not date or not country:
-            raise ValueError
-    except (ValidationError, TypeError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid input data.",
-        )
-
     exist_query = select(MovieModel).where(
-        MovieModel.name == name,
-        MovieModel.date == date,
+        MovieModel.name == body.name,
+        MovieModel.date == body.date,
     )
     exist_res = await db.execute(exist_query)
     if exist_res.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"A movie with the name '{name}' "
-                f"and release date '{date}' already exists."
+                f"A movie with the name '{body.name}' "
+                f"and release date '{body.date}' already exists."
             ),
         )
 
     country_query = select(CountryModel).where(
-        CountryModel.code == country
+        CountryModel.code == body.country
     )
     country_res = await db.execute(country_query)
     country_obj = country_res.scalar_one_or_none()
 
     if not country_obj:
-        country_obj = CountryModel(code=country, name=None)
+        country_obj = CountryModel(code=body.country, name=None)
         db.add(country_obj)
         await db.flush()
 
     genre_objects = []
-    for g_name in genres:
+    for g_name in body.genres:
         g_query = select(GenreModel).where(GenreModel.name == g_name)
         db_res = await db.execute(g_query)
         g_obj = db_res.scalar_one_or_none()
@@ -136,7 +117,7 @@ async def create_movie(
         genre_objects.append(g_obj)
 
     actor_objects = []
-    for a_name in actors:
+    for a_name in body.actors:
         a_query = select(ActorModel).where(ActorModel.name == a_name)
         db_res = await db.execute(a_query)
         a_obj = db_res.scalar_one_or_none()
@@ -146,7 +127,7 @@ async def create_movie(
         actor_objects.append(a_obj)
 
     lang_objects = []
-    for l_name in languages:
+    for l_name in body.languages:
         l_query = select(LanguageModel).where(LanguageModel.name == l_name)
         db_res = await db.execute(l_query)
         l_obj = db_res.scalar_one_or_none()
@@ -158,13 +139,13 @@ async def create_movie(
     await db.flush()
 
     new_movie = MovieModel(
-        name=name,
-        date=date,
-        score=score,
-        overview=overview,
-        status=status_val,
-        budget=budget,
-        revenue=revenue,
+        name=body.name,
+        date=body.date,
+        score=body.score,
+        overview=body.overview,
+        status=body.status,
+        budget=body.budget,
+        revenue=body.revenue,
         country_id=country_obj.id,
         genres=genre_objects,
         actors=actor_objects,
@@ -182,7 +163,19 @@ async def create_movie(
         )
 
     await db.refresh(new_movie)
-    return new_movie
+
+    query = (
+        select(MovieModel)
+        .options(
+            joinedload(MovieModel.country),
+            joinedload(MovieModel.genres),
+            joinedload(MovieModel.actors),
+            joinedload(MovieModel.languages),
+        )
+        .where(MovieModel.id == new_movie.id)
+    )
+    res = await db.execute(query)
+    return res.scalar_one()
 
 
 @router.get(
@@ -235,15 +228,9 @@ async def delete_movie(
 @router.patch("/{movie_id}/", response_model=MessageResponseSchema)
 async def update_movie(
     movie_id: int,
-    body: dict = Body(...),
+    body: MoviePatch = Body(...),
     db: AsyncSession = Depends(get_db),
 ):
-    if not isinstance(body, dict):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid input data.",
-        )
-
     query = select(MovieModel).where(MovieModel.id == movie_id)
     res = await db.execute(query)
     movie = res.scalar_one_or_none()
@@ -254,9 +241,10 @@ async def update_movie(
             detail="Movie with the given ID was not found.",
         )
 
-    for key, value in body.items():
+    update_data = body.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
         if hasattr(movie, key):
             setattr(movie, key, value)
 
     await db.commit()
-    return {"message": "Movie updated successfully."}
+    return {"detail": "Movie updated successfully."}
